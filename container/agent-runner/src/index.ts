@@ -389,10 +389,26 @@ async function runQuery(
     log(`Additional directories: ${extraDirs.join(', ')}`);
   }
 
+  // Read per-group model preference (set via /model command on host)
+  let agentModel = 'deepseek-v4-pro';
+  try {
+    const configPath = '/workspace/group/agent-config.json';
+    if (fs.existsSync(configPath)) {
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+      if (config.model) {
+        agentModel = config.model;
+      }
+    }
+  } catch {
+    // Ignore parse errors, fall back to default
+  }
+  log(`Using model: ${agentModel}`);
+
   for await (const message of query({
     prompt: stream,
     options: {
       cwd: '/workspace/group',
+      model: agentModel,
       additionalDirectories: extraDirs.length > 0 ? extraDirs : undefined,
       resume: sessionId,
       resumeSessionAt: resumeAt,

@@ -1,0 +1,46 @@
+# LiteLLM proxy config for NanoClaw → DeepSeek
+#
+# LiteLLM sits between the credential proxy and DeepSeek, translating
+# Anthropic Messages API format to OpenAI Chat Completions format.
+#
+# Container agent SDK → credential proxy → LiteLLM → DeepSeek
+
+general_settings:
+  # No master key required — LiteLLM runs on localhost, protected by firewall
+  # and only reachable from the credential proxy on the same machine.
+
+litellm_settings:
+  drop_params: true         # Ignore Anthropic-specific fields DeepSeek doesn't support
+  set_verbose: false
+
+model_list:
+  # Map the Claude model names that the @anthropic-ai/claude-agent-sdk sends
+  # to DeepSeek backends. LiteLLM handles the Anthropic ↔ OpenAI translation.
+  - model_name: claude-sonnet-4-6
+    litellm_params:
+      model: deepseek/deepseek-chat
+
+  - model_name: claude-opus-4-6
+    litellm_params:
+      model: deepseek/deepseek-reasoner
+
+  - model_name: claude-haiku-4-5-20251001
+    litellm_params:
+      model: deepseek/deepseek-chat
+
+  # Also accept DeepSeek model names directly
+  - model_name: deepseek-v4-pro
+    litellm_params:
+      model: deepseek/deepseek-v4-pro
+
+  - model_name: deepseek-chat
+    litellm_params:
+      model: deepseek/deepseek-chat
+
+  - model_name: deepseek-reasoner
+    litellm_params:
+      model: deepseek/deepseek-reasoner
+
+router:
+  # Accept Anthropic-format requests at /v1/messages
+  anthropic_providers: ["deepseek"]

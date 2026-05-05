@@ -231,6 +231,9 @@ function buildContainerArgs(
   // API key mode: SDK sends x-api-key, proxy replaces with real key.
   // OAuth mode:   SDK exchanges placeholder token for temp API key,
   //               proxy injects real OAuth token on that exchange request.
+  // DeepSeek mode: SDK sends x-api-key (placeholder), proxy replaces it
+  //               with DEEPSEEK_API_KEY and forwards to DeepSeek's
+  //               Anthropic-compatible API.
   const authMode = detectAuthMode();
   if (authMode === 'api-key') {
     args.push('-e', 'ANTHROPIC_API_KEY=placeholder');

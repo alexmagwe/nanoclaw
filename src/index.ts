@@ -6,10 +6,12 @@ import {
   CREDENTIAL_PROXY_PORT,
   IDLE_TIMEOUT,
   POLL_INTERVAL,
+  TELEGRAM_BOT_POOL,
   TIMEZONE,
   TRIGGER_PATTERN,
 } from './config.js';
-import { startCredentialProxy } from './credential-proxy.js';
+import { initBotPool } from './channels/telegram.js';
+import { startCredentialProxy, refreshOAuthTokenFromKeychain } from './credential-proxy.js';
 import './channels/index.js';
 import {
   getChannelFactory,
@@ -58,6 +60,52 @@ import { logger } from './logger.js';
 
 // Re-export for backwards compatibility during refactor
 export { escapeXml, formatMessages } from './router.js';
+
+const VALID_MODELS: Record<string, string> = {
+  // DeepSeek models (via LiteLLM translation)
+  'deepseek-v4-pro':   'deepseek-v4-pro',
+  'deepseek-chat':     'deepseek-chat',
+  'deepseek-reasoner': 'deepseek-reasoner',
+  // Backwards-compatible aliases
+  'opus':              'deepseek-reasoner',
+  'sonnet':            'deepseek-chat',
+  'haiku':             'deepseek-chat',
+  'reasoner':          'deepseek-reasoner',
+  'chat':              'deepseek-chat',
+  'v4-pro':            'deepseek-v4-pro',
+};
+
+function handleBuiltinCommand(
+  messages: import('./types.js').NewMessage[],
+  groupFolder: string,
+): string | null {
+  const listCmd = messages.find((m) => /^\/models\b/i.test(m.content.trim()));
+  if (listCmd) {
+    const configPath = resolveGroupFolderPath(groupFolder) + '/agent-config.json';
+    const current = fs.existsSync(configPath)
+      ? JSON.parse(fs.readFileSync(configPath, 'utf-8')).model ?? 'deepseek-v4-pro'
+      : 'deepseek-v4-pro';
+    return `Available models:\n• v4-pro — deepseek-v4-pro\n• chat — deepseek-chat (DeepSeek V3)\n• reasoner — deepseek-reasoner (DeepSeek R1)\n\nAliases: sonnet/haiku → chat, opus → reasoner\n\nCurrent: ${current}\n\nUse /model <name> to switch.`;
+  }
+
+  const cmd = messages.find((m) => /^\/model\b/i.test(m.content.trim()));
+  if (!cmd) return null;
+
+  const arg = cmd.content.trim().split(/\s+/)[1]?.toLowerCase();
+  const model = arg ? VALID_MODELS[arg] : undefined;
+
+  if (!model) {
+    return `Unknown model "${arg}". Available: v4-pro, chat, reasoner (or sonnet, opus, haiku aliases)`;
+  }
+
+  const configPath = resolveGroupFolderPath(groupFolder) + '/agent-config.json';
+  const existing = fs.existsSync(configPath)
+    ? JSON.parse(fs.readFileSync(configPath, 'utf-8'))
+    : {};
+  fs.writeFileSync(configPath, JSON.stringify({ ...existing, model }, null, 2));
+
+  return `Model set to ${model}`;
+}
 
 let lastTimestamp = '';
 let sessions: Record<string, string> = {};
@@ -173,6 +221,17 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         (m.is_from_me || isTriggerAllowed(chatJid, m.sender, allowlistCfg)),
     );
     if (!hasTrigger) return true;
+  }
+
+  // Handle built-in commands before invoking the agent
+  const commandReply = handleBuiltinCommand(missedMessages, group.folder);
+  if (commandReply !== null) {
+    const channel = findChannel(channels, chatJid);
+    if (channel) await channel.sendMessage(chatJid, commandReply);
+    lastAgentTimestamp[chatJid] =
+      missedMessages[missedMessages.length - 1].timestamp;
+    saveState();
+    return true;
   }
 
   const prompt = formatMessages(missedMessages, TIMEZONE);
@@ -465,11 +524,14 @@ function ensureContainerSystemRunning(): void {
   cleanupOrphans();
 }
 
+
 async function main(): Promise<void> {
   ensureContainerSystemRunning();
   initDatabase();
   logger.info('Database initialized');
   loadState();
+
+  refreshOAuthTokenFromKeychain();
 
   // Start credential proxy (containers route API calls through this)
   const proxyServer = await startCredentialProxy(
@@ -538,6 +600,11 @@ async function main(): Promise<void> {
   if (channels.length === 0) {
     logger.fatal('No channels connected');
     process.exit(1);
+  }
+
+  // Initialize Telegram bot pool if tokens are configured
+  if (TELEGRAM_BOT_POOL.length > 0) {
+    await initBotPool(TELEGRAM_BOT_POOL);
   }
 
   // Start subsystems (independently of connection handler)

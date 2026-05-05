@@ -177,6 +177,9 @@ function findAllowedRoot(
   realPath: string,
   allowedRoots: AllowedRoot[],
 ): AllowedRoot | null {
+  let bestMatch: AllowedRoot | null = null;
+  let bestMatchLength = -1;
+
   for (const root of allowedRoots) {
     const expandedRoot = expandPath(root.path);
     const realRoot = getRealPath(expandedRoot);
@@ -189,11 +192,15 @@ function findAllowedRoot(
     // Check if realPath is under realRoot
     const relative = path.relative(realRoot, realPath);
     if (!relative.startsWith('..') && !path.isAbsolute(relative)) {
-      return root;
+      // Prefer the most specific (longest) matching root
+      if (realRoot.length > bestMatchLength) {
+        bestMatch = root;
+        bestMatchLength = realRoot.length;
+      }
     }
   }
 
-  return null;
+  return bestMatch;
 }
 
 /**

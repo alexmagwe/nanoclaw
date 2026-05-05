@@ -7,6 +7,10 @@ vi.mock('./env.js', () => ({
   readEnvFile: vi.fn(() => ({ ...mockEnv })),
 }));
 
+vi.mock('./config.js', () => ({
+  DEEPSEEK_MODE: false,
+}));
+
 vi.mock('./logger.js', () => ({
   logger: { info: vi.fn(), error: vi.fn(), debug: vi.fn(), warn: vi.fn() },
 }));
